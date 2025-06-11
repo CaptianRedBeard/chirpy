@@ -1,78 +1,72 @@
 package main
 
 import (
+	"chirpy/internal/database"
+	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"sync/atomic"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
-}
-
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits.Add(1)
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (cfg *apiConfig) GetCount(w http.ResponseWriter, r *http.Request) {
-	hitCount := cfg.fileserverHits.Load()
-	// write it to the response in format "Hits: x"
-
-	_, err := w.Write([]byte(fmt.Sprintf("Hits: %d", hitCount)))
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
-func (cfg *apiConfig) ResetCount(w http.ResponseWriter, r *http.Request) {
-	cfg.fileserverHits.Store(0)
-	_, err := w.Write([]byte(fmt.Sprintf("Reset hit count")))
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	db             database.Queries
+	platform       string
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Printf("Error loading environment: %v", err)
+		return
+	}
+
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		fmt.Printf("Error preping database: %v", err)
+		return
+	}
+
+	err = db.Ping()
+	if err != nil {
+		fmt.Printf("Error pining db: %v", err)
+		return
+	}
+
+	dbQueries := database.New(db)
+
+	const filepathRoot = "."
+	const port = "8080"
+
+	apiCfg := apiConfig{
+		fileserverHits: atomic.Int32{},
+		db:             *dbQueries,
+		platform:       os.Getenv("PLATFORM"),
+	}
+
 	mux := http.NewServeMux()
+	fsHandler := apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot))))
+	mux.Handle("/app/", fsHandler)
 
-	//Convert the current directory to a directory for the FileServer
-	fileServer := http.FileServer(http.Dir("."))
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerChirpsCreate)
+	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	mux.HandleFunc("POST /api/users", apiCfg.handlerUsersCreate)
 
-	api := apiConfig{}
+	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
+	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 
-	// Add the file server as a handler for the root path
-	mux.Handle("/app/", api.middlewareMetricsInc(http.StripPrefix("/app/", fileServer)))
-
-	mux.HandleFunc("/healthz", healthCheckHandler)
-	mux.HandleFunc("/metrics", api.GetCount)
-	mux.HandleFunc("/reset", api.ResetCount)
-
-	server := &http.Server{
-		Addr:    ":8080",
+	srv := &http.Server{
+		Addr:    ":" + port,
 		Handler: mux,
 	}
 
-	err := server.ListenAndServe()
-	if err != nil {
-		fmt.Printf("Server failed to start: %v\n", err)
-	}
-
-}
-
-func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
-	// Set the Content-Type header
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-
-	// Write the status code
-	w.WriteHeader(http.StatusOK)
-
-	// Write the response body
-	_, err := w.Write([]byte("OK"))
-	if err != nil {
-		// Handle error if writing fails
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
+	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
+	log.Fatal(srv.ListenAndServe())
 }
