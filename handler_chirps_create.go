@@ -1,7 +1,6 @@
 package main
 
 import (
-	"chirpy/internal/database"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -9,10 +8,15 @@ import (
 	"github.com/google/uuid"
 )
 
+type chirpResponse struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request) {
-	type response struct {
-		database.Chirp
-	}
 
 	params := chirpParamaters{}
 	decoder := json.NewDecoder(r.Body)
@@ -34,23 +38,15 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	chirpParams := database.CreateChirpParams{
-		Body:   params.Body,
-		UserID: uuid.NullUUID{UUID: params.User_id, Valid: true},
+	chirpParams := chirpParamaters{
+		Body:    params.Body,
+		User_id: params.User_id, //uuid.NullUUID{UUID: params.User_id, Valid: true},
 	}
 
-	chirp, err := cfg.db.CreateChirp(r.Context(), chirpParams)
+	chirp, err := cfg.db.CreateChirp(r.Context(), chirpParams.Body)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
 		return
-	}
-
-	type chirpResponse struct {
-		ID        uuid.UUID `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Body      string    `json:"body"`
-		UserID    uuid.UUID `json:"user_id"`
 	}
 
 	respondWithJSON(w, http.StatusCreated, chirpResponse{
@@ -58,7 +54,7 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 		CreatedAt: chirp.CreatedAt,
 		UpdatedAt: chirp.UpdatedAt,
 		Body:      chirp.Body,
-		UserID:    chirp.UserID.UUID,
+		UserID:    chirp.UserID,
 	})
 
 }
