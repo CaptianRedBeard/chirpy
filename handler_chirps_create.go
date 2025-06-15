@@ -1,6 +1,8 @@
 package main
 
 import (
+	"chirpy/internal/auth"
+	"chirpy/internal/database"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -26,24 +28,27 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	_, err = cfg.db.GetUserByID(r.Context(), params.User_id)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "User not in database", err)
-		return
-	}
-
 	err = ValidateChirp(params)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't validate chirp", err)
 		return
 	}
 
-	chirpParams := chirpParamaters{
-		Body:    params.Body,
-		User_id: params.User_id, //uuid.NullUUID{UUID: params.User_id, Valid: true},
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate token", err)
+		return
+	}
+	userID, err := auth.ValidateJWT(tokenString, cfg.jwt_secret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't validate user", err)
+		return
 	}
 
-	chirp, err := cfg.db.CreateChirp(r.Context(), chirpParams.Body)
+	chirp, err := cfg.db.CreateChirp(r.Context(), database.CreateChirpParams{
+		Body:   params.Body,
+		UserID: userID,
+	})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't create chirp", err)
 		return

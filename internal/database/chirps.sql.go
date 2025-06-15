@@ -12,18 +12,25 @@ import (
 )
 
 const createChirp = `-- name: CreateChirp :one
-INSERT INTO chirps (id, created_at, updated_at, body)
+INSERT INTO chirps (id, created_at, updated_at, body, user_id)
 VALUES (
     gen_random_uuid() ,
     NOW(),
     NOW(),
-    $1
+    $1,
+    $2
+
 )
 RETURNING id, created_at, updated_at, body, user_id
 `
 
-func (q *Queries) CreateChirp(ctx context.Context, body string) (Chirp, error) {
-	row := q.db.QueryRowContext(ctx, createChirp, body)
+type CreateChirpParams struct {
+	Body   string
+	UserID uuid.UUID
+}
+
+func (q *Queries) CreateChirp(ctx context.Context, arg CreateChirpParams) (Chirp, error) {
+	row := q.db.QueryRowContext(ctx, createChirp, arg.Body, arg.UserID)
 	var i Chirp
 	err := row.Scan(
 		&i.ID,

@@ -17,6 +17,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             database.Queries
 	platform       string
+	jwt_secret     string
 }
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 		fileserverHits: atomic.Int32{},
 		db:             *dbQueries,
 		platform:       os.Getenv("PLATFORM"),
+		jwt_secret:     os.Getenv("JWT_SECRET"),
 	}
 
 	mux := http.NewServeMux()
@@ -62,6 +64,8 @@ func main() {
 	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
 	mux.HandleFunc("POST /api/users", apiCfg.handlerUsersCreate)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefreshAccessToken)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeAccessToken)
 
 	mux.HandleFunc("POST /admin/reset", apiCfg.handlerReset)
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
